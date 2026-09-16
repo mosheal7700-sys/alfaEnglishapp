@@ -403,7 +403,7 @@ function GlobalStyle() {
       .ela-nav-desktop { display: none; }
       .ela-main {
         flex: 1;
-        padding: 20px 18px 90px 18px;
+        padding: 20px 18px 240px 18px;
         min-width: 0;
       }
       @media (min-width: 760px) {
@@ -591,13 +591,13 @@ function GlobalStyle() {
       }
 
       .ela-speakbar {
-        position: fixed; bottom: 0; left: 0; right: 0;
+        position: fixed; bottom: calc(64px + env(safe-area-inset-bottom, 0px)); left: 0; right: 0;
         background: var(--paper); border-top: 1px solid var(--mist);
-        padding: 14px 18px calc(14px + env(safe-area-inset-bottom, 0px)) 18px;
+        padding: 14px 18px 14px 18px;
         display: flex; flex-direction: column; align-items: center; gap: 10px;
-        max-width: 920px; margin: 0 auto;
+        max-width: 920px; margin: 0 auto; z-index: 21;
       }
-      @media (min-width: 760px) { .ela-speakbar { position: static; border-top: none; padding: 10px 0 0 0; } }
+      @media (min-width: 760px) { .ela-speakbar { position: static; border-top: none; padding: 10px 0 0 0; z-index: auto; } }
 
       .ela-micbtn {
         width: 68px; height: 68px; border-radius: 50%; border: none; cursor: pointer;
