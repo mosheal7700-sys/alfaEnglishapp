@@ -18,6 +18,10 @@ import {
   TrendingDown,
   Loader2,
   Home as HomeIcon,
+  Mic,
+  Square,
+  RotateCcw,
+  Lightbulb,
 } from "lucide-react";
 
 /* ============================== DATA ============================== */
@@ -317,7 +321,42 @@ async function generateAIDialogue(apiKey, level, topic) {
   };
 }
 
-/* ============================== STYLES ============================== */
+async function generateSpeakingTurn(apiKey, level, topic, history) {
+  const levelHe = levelLabel(level);
+  const isOpening = history.length === 0;
+  const historyText = history.map((h) => `${h.role === "ai" ? "AI" : "תלמיד"}: ${h.text}`).join("\n");
+  const prompt = isOpening
+    ? `אתה שותף שיחה סבלני וממריץ לתרגול אנגלית מדוברת, עבור לומד ישראלי ברמת "${levelHe}"${topic ? ` בנושא "${topic}"` : ""}.
+פתח בשאלה קצרה, טבעית וידידותית באנגלית שתתחיל שיחה קצרה בנושא הזה.
+החזר אובייקט JSON בפורמט הבא בדיוק:
+{"reply": "המשפט/שאלה הפותחת שלך באנגלית, קצרה וטבעית", "replyHe": "תרגום לעברית של reply", "correction": null, "feedbackHe": null, "hint": ["2-3 מילים או ביטויים קצרים באנגלית שיכולים לעזור לתלמיד לענות"]}
+החזר אך ורק JSON תקין, בלי שום טקסט נוסף.`
+    : `אתה שותף שיחה סבלני וממריץ לתרגול אנגלית מדוברת, עבור לומד ישראלי ברמת "${levelHe}"${topic ? ` בנושא "${topic}"` : ""}.
+זהו המשך שיחה. הנה תמלול השיחה עד כה (תמלול המשפטים של התלמיד נעשה מזיהוי דיבור אוטומטי, ולכן ייתכנו שגיאות תעתיק קלות - התייחס בעיקר לדקדוק, מבנה משפט ובחירת מילים, ולא לשגיאות איות שנובעות מתעתיק):
+${historyText}
+
+הגב באופן טבעי וקצר להמשך השיחה (כמו שותף שיחה אמיתי, לא כמורה), ובנוסף תקן בעדינות את המשפט האחרון של התלמיד רק אם יש בו טעות דקדוק או מבנה משמעותית.
+החזר אובייקט JSON בפורמט הבא בדיוק:
+{"reply": "התגובה או השאלה הבאה שלך באנגלית, קצרה וטבעית", "replyHe": "תרגום לעברית של reply", "correction": "גרסה מתוקנת ומשופרת של משפט התלמיד האחרון - רק אם היו טעויות משמעותיות, אחרת null", "feedbackHe": "משפט עידוד קצר וממוקד בעברית שמסביר בעדינות את התיקון - רק אם יש correction, אחרת null", "hint": ["2-3 מילים או ביטויים קצרים באנגלית שיכולים לעזור לתלמיד לענות לשאלה הבאה"]}
+היה חם, סבלני ומעודד. התמקד במסירת המסר ולא בשלמות לשונית - אם התלמיד הצליח להעביר את הכוונה בבירור, ציין זאת בחיוב גם אם המשפט לא מושלם לחלוטין.
+החזר אך ורק JSON תקין, בלי שום טקסט נוסף.`;
+  const obj = await callGemini(apiKey, prompt);
+  if (!obj || !obj.reply) throw new Error("פורמט תשובה לא תקין");
+  return {
+    reply: String(obj.reply),
+    replyHe: String(obj.replyHe || ""),
+    correction: obj.correction ? String(obj.correction) : null,
+    feedbackHe: obj.feedbackHe ? String(obj.feedbackHe) : null,
+    hint: Array.isArray(obj.hint) ? obj.hint.slice(0, 3).map(String) : [],
+  };
+}
+
+function getSpeechRecognition() {
+  const SR = typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
+  return SR ? new SR() : null;
+}
+
+
 
 function GlobalStyle() {
   return (
@@ -523,6 +562,57 @@ function GlobalStyle() {
       @keyframes ela-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       .ela-errbox { background: var(--rose-light); color: var(--rose); border-radius: 12px; padding: 12px 14px; font-size: 13.5px; margin-bottom: 14px; }
       .ela-note { color: var(--muted); font-size: 13px; margin-top: 8px; line-height: 1.6; }
+
+      .ela-chat { display: flex; flex-direction: column; gap: 12px; margin-bottom: 90px; }
+      .ela-chatrow { display: flex; }
+      .ela-chatrow.ai { justify-content: flex-start; }
+      .ela-chatrow.user { justify-content: flex-end; }
+      .ela-chatbubble {
+        max-width: 82%; border-radius: 16px; padding: 12px 14px;
+      }
+      .ela-chatrow.ai .ela-chatbubble { background: var(--card); border: 1px solid var(--mist); border-bottom-left-radius: 4px; }
+      .ela-chatrow.user .ela-chatbubble { background: var(--sage); color: white; border-bottom-right-radius: 4px; }
+      .ela-chatbubble .en { font-family: 'Fraunces', serif; font-size: 16.5px; direction: ltr; text-align: left; }
+      .ela-chatrow.ai .ela-chatbubble .he { color: var(--muted); font-size: 12.5px; margin-top: 5px; }
+      .ela-chatrow.user .ela-chatbubble .he { color: rgba(255,255,255,0.8); font-size: 12.5px; margin-top: 5px; }
+      .ela-chatrow.ai .ela-chatbubble .speakbtn { margin-top: 6px; }
+      .ela-correction {
+        background: var(--gold-light); border-radius: 12px; padding: 10px 12px;
+        margin-top: 8px; max-width: 82%; align-self: flex-end; font-size: 13px;
+      }
+      .ela-correction .label { font-weight: 700; color: #6B4A0C; font-size: 11.5px; margin-bottom: 3px; }
+      .ela-correction .fixed { font-family: 'Fraunces', serif; direction: ltr; text-align: left; color: #6B4A0C; }
+      .ela-correction .fb { color: #6B4A0C; margin-top: 4px; }
+
+      .ela-hintrow { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px 0; }
+      .ela-hintchip {
+        font-size: 12px; background: var(--sage-light); color: var(--sage);
+        border-radius: 999px; padding: 4px 10px; border: none; direction: ltr;
+      }
+
+      .ela-speakbar {
+        position: fixed; bottom: 0; left: 0; right: 0;
+        background: var(--paper); border-top: 1px solid var(--mist);
+        padding: 14px 18px calc(14px + env(safe-area-inset-bottom, 0px)) 18px;
+        display: flex; flex-direction: column; align-items: center; gap: 10px;
+        max-width: 920px; margin: 0 auto;
+      }
+      @media (min-width: 760px) { .ela-speakbar { position: static; border-top: none; padding: 10px 0 0 0; } }
+
+      .ela-micbtn {
+        width: 68px; height: 68px; border-radius: 50%; border: none; cursor: pointer;
+        background: var(--sage); color: white; display: flex; align-items: center; justify-content: center;
+        box-shadow: 0 6px 18px rgba(79,121,101,0.35); transition: transform 0.15s ease;
+      }
+      .ela-micbtn.listening { background: var(--rose); animation: ela-pulse 1.4s ease-in-out infinite; }
+      .ela-micbtn:disabled { opacity: 0.5; cursor: default; }
+      @keyframes ela-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(193,85,74,0.4); } 50% { box-shadow: 0 0 0 14px rgba(193,85,74,0); } }
+
+      .ela-transcriptbox {
+        width: 100%; background: var(--card); border: 1.5px solid var(--mist); border-radius: 14px;
+        padding: 12px 14px; font-family: 'Fraunces', serif; font-size: 16px; direction: ltr; text-align: left;
+        min-height: 46px;
+      }
     `}</style>
   );
 }
@@ -572,6 +662,13 @@ function Home({ state, setLevel, dueCount, newCount, onGo }) {
           <h3>שיחה</h3>
           <p>{aiOn ? "דיאלוגים קבועים, ואפשרות ליצור שיחה חדשה עם AI לפי נושא" : "תרגלו דיאלוגים אמיתיים עם הגייה מוקראת, לפי מצבים יומיומיים."}</p>
         </div>
+        {aiOn && (
+          <div className="ela-bigcard" onClick={() => onGo("speaking")}>
+            <div className="icon-wrap" style={{ background: "var(--rose-light)", color: "var(--rose)" }}><Mic size={22} /></div>
+            <h3>תרגול דיבור</h3>
+            <p>דברו עם ה-AI באנגלית וקבלו תיקונים עדינים בזמן אמת - תרגול הפקה פעילה.</p>
+          </div>
+        )}
       </div>
 
       <div style={{ marginTop: 26, display: "flex", gap: 20, color: "var(--muted)", fontSize: 13.5 }}>
@@ -920,6 +1017,211 @@ function Settings({ state, onSave }) {
   );
 }
 
+/* ============================== SPEAKING PRACTICE VIEW ============================== */
+
+function SpeakingPractice({ level, apiKey, onBack, onSessionEnd }) {
+  const [topic, setTopic] = useState(null);
+  const [history, setHistory] = useState([]); // { role: 'ai'|'user', text, textHe?, correction?, feedbackHe?, hint? }
+  const [phase, setPhase] = useState("pick"); // pick -> loading -> ready -> listening -> reviewing -> sending
+  const [transcript, setTranscript] = useState("");
+  const [error, setError] = useState(null);
+  const [showHint, setShowHint] = useState(false);
+  const speechSupported = !!getSpeechRecognition();
+
+  const effectiveLevel = level === "all" ? "intermediate" : level;
+
+  async function startTopic(t) {
+    setTopic(t);
+    setPhase("loading");
+    setError(null);
+    try {
+      const turn = await generateSpeakingTurn(apiKey, effectiveLevel, t, []);
+      setHistory([{ role: "ai", text: turn.reply, textHe: turn.replyHe, hint: turn.hint }]);
+      setPhase("ready");
+    } catch (e) {
+      setError(e.message || "שגיאה ביצירת השיחה");
+      setPhase("pick");
+    }
+  }
+
+  function startListening() {
+    const rec = getSpeechRecognition();
+    if (!rec) return;
+    setError(null);
+    setTranscript("");
+    rec.lang = "en-US";
+    rec.interimResults = true;
+    rec.maxAlternatives = 1;
+    let finalText = "";
+    rec.onresult = (event) => {
+      let interim = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const t = event.results[i][0].transcript;
+        if (event.results[i].isFinal) finalText += t;
+        else interim += t;
+      }
+      setTranscript((finalText + " " + interim).trim());
+    };
+    rec.onerror = (event) => {
+      setError(event.error === "not-allowed" ? "הגישה למיקרופון נחסמה. אשרו הרשאת מיקרופון בדפדפן ונסו שוב." : "לא הצלחנו לזהות דיבור. נסו שוב.");
+      setPhase("ready");
+    };
+    rec.onend = () => {
+      setPhase((p) => (p === "listening" ? "reviewing" : p));
+    };
+    rec.start();
+    setPhase("listening");
+  }
+
+  async function sendAnswer(text) {
+    if (!text || !text.trim()) return;
+    const userTurn = { role: "user", text: text.trim() };
+    const nextHistory = [...history, userTurn];
+    setHistory(nextHistory);
+    setPhase("sending");
+    setShowHint(false);
+    setTranscript("");
+    try {
+      const turn = await generateSpeakingTurn(apiKey, effectiveLevel, topic, nextHistory);
+      const withFeedback = nextHistory.map((h, i) =>
+        i === nextHistory.length - 1 ? { ...h, correction: turn.correction, feedbackHe: turn.feedbackHe } : h
+      );
+      setHistory([...withFeedback, { role: "ai", text: turn.reply, textHe: turn.replyHe, hint: turn.hint }]);
+      setPhase("ready");
+    } catch (e) {
+      setError(e.message || "שגיאה בקבלת תגובה");
+      setPhase("ready");
+    }
+  }
+
+  const lastAI = [...history].reverse().find((h) => h.role === "ai");
+
+  if (phase === "pick") {
+    return (
+      <div>
+        <BackRow onBack={onBack} />
+        <h1 className="ela-h1">תרגול דיבור</h1>
+        <p className="ela-sub">דברו עם ה-AI באנגלית, קבלו תיקונים עדינים, ותתקדמו בביטחון.</p>
+        {!speechSupported && (
+          <div className="ela-errbox">
+            הדפדפן הזה לא תומך בזיהוי דיבור. עדיין אפשר לתרגל בהקלדה, אבל לחוויה הכי טובה מומלץ Chrome.
+          </div>
+        )}
+        {error && <div className="ela-errbox">{error}</div>}
+        <p className="ela-sub" style={{ marginBottom: 10 }}>באיזה נושא?</p>
+        <div className="ela-chiprow">
+          <button className="ela-chip" onClick={() => startTopic(null)}>שיחה חופשית</button>
+          {TOPICS.map((t) => (
+            <button key={t} className="ela-chip" onClick={() => startTopic(t)}>{t}</button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === "loading") {
+    return (
+      <div>
+        <BackRow onBack={onBack} />
+        <div className="ela-loadingbox"><Loader2 size={30} className="ela-spin" /><p>ה-AI מכין שאלת פתיחה...</p></div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <BackRow onBack={onBack} />
+      <h1 className="ela-h1">תרגול דיבור</h1>
+      <p className="ela-sub">{topic || "שיחה חופשית"}</p>
+
+      <div className="ela-chat">
+        {history.map((h, i) => (
+          <div key={i}>
+            <div className={"ela-chatrow " + h.role}>
+              <div className="ela-chatbubble">
+                <div className="en">{h.text}</div>
+                {h.role === "ai" && h.textHe && <div className="he">{h.textHe}</div>}
+                {h.role === "ai" && (
+                  <button className="ela-iconbtn speakbtn" style={{ width: 30, height: 30 }} onClick={() => speak(h.text)} aria-label="השמעה">
+                    <Volume2 size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
+            {h.role === "user" && h.correction && (
+              <div className="ela-correction">
+                <div className="label">גרסה משופרת</div>
+                <div className="fixed">{h.correction}</div>
+                {h.feedbackHe && <div className="fb">{h.feedbackHe}</div>}
+              </div>
+            )}
+          </div>
+        ))}
+        {phase === "sending" && (
+          <div className="ela-chatrow ai"><div className="ela-chatbubble"><Loader2 size={16} className="ela-spin" /></div></div>
+        )}
+      </div>
+
+      {lastAI && lastAI.hint && lastAI.hint.length > 0 && (phase === "ready" || phase === "listening" || phase === "reviewing") && (
+        <div style={{ marginBottom: 8 }}>
+          {!showHint ? (
+            <button className="ela-chip" onClick={() => setShowHint(true)}><Lightbulb size={13} style={{ marginLeft: 4 }} />הצג רמז</button>
+          ) : (
+            <div className="ela-hintrow">
+              {lastAI.hint.map((h, i) => (
+                <span className="ela-hintchip" key={i}>{h}</span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {error && phase === "ready" && <div className="ela-errbox">{error}</div>}
+
+      <div className="ela-speakbar">
+        {phase === "reviewing" ? (
+          <>
+            <div className="ela-transcriptbox">{transcript || "(לא זוהה טקסט)"}</div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button className="ela-btn secondary" onClick={startListening}><RotateCcw size={15} />הקלטה מחדש</button>
+              <button className="ela-btn" disabled={!transcript.trim()} onClick={() => sendAnswer(transcript)}>שליחה</button>
+            </div>
+          </>
+        ) : speechSupported ? (
+          <>
+            <button
+              className={"ela-micbtn" + (phase === "listening" ? " listening" : "")}
+              disabled={phase === "sending" || phase === "loading"}
+              onClick={phase === "listening" ? () => {} : startListening}
+            >
+              {phase === "listening" ? <Square size={24} /> : <Mic size={26} />}
+            </button>
+            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>{phase === "listening" ? "מקשיב... דברו עכשיו" : "הקישו כדי לדבר"}</span>
+          </>
+        ) : (
+          <div style={{ display: "flex", gap: 8, width: "100%" }}>
+            <input
+              className="ela-field"
+              dir="ltr"
+              placeholder="Type your answer in English..."
+              value={transcript}
+              onChange={(e) => setTranscript(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") sendAnswer(transcript); }}
+            />
+            <button className="ela-btn" disabled={!transcript.trim()} onClick={() => sendAnswer(transcript)}>שליחה</button>
+          </div>
+        )}
+      </div>
+
+      {history.length >= 2 && phase === "ready" && (
+        <div style={{ textAlign: "center", marginTop: 14 }}>
+          <button className="ela-btn secondary" onClick={onSessionEnd}>סיום תרגול</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ============================== ONBOARDING ============================== */
 
 function Onboarding({ onFinish }) {
@@ -1060,6 +1362,7 @@ export default function App() {
     { id: "home", label: "בית", Icon: HomeIcon },
     { id: "vocab", label: "מילים", Icon: BookOpen },
     { id: "convo", label: "שיחה", Icon: MessageCircle },
+    ...(state.settings.apiKey ? [{ id: "speaking", label: "דיבור", Icon: Mic }] : []),
     { id: "settings", label: "הגדרות", Icon: SettingsIcon },
   ];
 
@@ -1128,6 +1431,19 @@ export default function App() {
           )}
 
           {tab === "settings" && <Settings state={state} onSave={saveApiKey} />}
+
+          {tab === "speaking" && state.settings.apiKey && (
+            <SpeakingPractice
+              key={levelFilter}
+              level={levelFilter}
+              apiKey={state.settings.apiKey}
+              onBack={() => goTab("home")}
+              onSessionEnd={() => {
+                completeConvo(`speaking-${Date.now()}`, false);
+                goTab("home");
+              }}
+            />
+          )}
         </main>
       </div>
 
