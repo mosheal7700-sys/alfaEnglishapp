@@ -611,8 +611,9 @@ function GlobalStyle() {
       .ela-transcriptbox {
         width: 100%; background: var(--card); border: 1.5px solid var(--mist); border-radius: 14px;
         padding: 12px 14px; font-family: 'Fraunces', serif; font-size: 16px; direction: ltr; text-align: left;
-        min-height: 46px;
+        min-height: 46px; resize: vertical; outline: none;
       }
+      .ela-transcriptbox:focus { border-color: var(--sage); }
     `}</style>
   );
 }
@@ -1065,11 +1066,24 @@ function SpeakingPractice({ level, apiKey, onBack, onSessionEnd }) {
     setPhase("starting");
     rec.onaudiostart = () => setPhase((p) => (p === "starting" ? "listening" : p));
     rec.onresult = (event) => {
-      let text = "";
+      let finalParts = [];
+      let interimText = "";
       for (let i = 0; i < event.results.length; i++) {
-        text += event.results[i][0].transcript;
+        const t = (event.results[i][0].transcript || "").trim();
+        if (!t) continue;
+        if (event.results[i].isFinal) {
+          const joinedSoFar = finalParts.join(" ");
+          if (joinedSoFar && t.toLowerCase().startsWith(joinedSoFar.toLowerCase())) {
+            // this platform (e.g. Android Chrome) resends a cumulative transcript - replace, don't append
+            finalParts = [t];
+          } else if (!joinedSoFar.toLowerCase().includes(t.toLowerCase())) {
+            finalParts.push(t);
+          }
+        } else {
+          interimText = t;
+        }
       }
-      setTranscript(text.trim());
+      setTranscript((finalParts.join(" ") + " " + interimText).trim());
     };
     rec.onerror = (event) => {
       if (event.error === "no-speech") {
@@ -1089,6 +1103,12 @@ function SpeakingPractice({ level, apiKey, onBack, onSessionEnd }) {
 
   function stopListening() {
     try { recRef.current && recRef.current.stop(); } catch (e) { /* noop */ }
+  }
+
+  function typeInstead() {
+    setError(null);
+    setTranscript("");
+    setPhase("reviewing");
   }
 
   async function sendAnswer(text) {
@@ -1199,9 +1219,19 @@ function SpeakingPractice({ level, apiKey, onBack, onSessionEnd }) {
       <div className="ela-speakbar">
         {phase === "reviewing" ? (
           <>
-            <div className="ela-transcriptbox">{transcript || "(לא זוהה טקסט)"}</div>
+            <textarea
+              className="ela-transcriptbox"
+              dir="ltr"
+              rows={2}
+              placeholder="Type or edit your answer in English..."
+              value={transcript}
+              onChange={(e) => setTranscript(e.target.value)}
+              autoFocus
+            />
             <div style={{ display: "flex", gap: 10 }}>
-              <button className="ela-btn secondary" onClick={startListening}><RotateCcw size={15} />הקלטה מחדש</button>
+              {speechSupported && (
+                <button className="ela-btn secondary" onClick={startListening}><RotateCcw size={15} />הקלטה מחדש</button>
+              )}
               <button className="ela-btn" disabled={!transcript.trim()} onClick={() => sendAnswer(transcript)}>שליחה</button>
             </div>
           </>
@@ -1217,6 +1247,14 @@ function SpeakingPractice({ level, apiKey, onBack, onSessionEnd }) {
             <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
               {phase === "starting" ? "מתחברים למיקרופון..." : phase === "listening" ? "מקשיב... דברו עכשיו, לחצו כדי לסיים" : "הקישו כדי לדבר"}
             </span>
+            {phase === "ready" && (
+              <button
+                onClick={typeInstead}
+                style={{ background: "none", border: "none", color: "var(--sage)", fontSize: 13, fontWeight: 600, cursor: "pointer", textDecoration: "underline", fontFamily: "Heebo, sans-serif" }}
+              >
+                או הקלידו את התשובה במקום
+              </button>
+            )}
           </>
         ) : (
           <div style={{ display: "flex", gap: 8, width: "100%" }}>
@@ -1477,4 +1515,5 @@ export default function App() {
     </div>
   );
 }
+
 
