@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Flame,
   BookOpen,
@@ -1027,6 +1027,13 @@ function SpeakingPractice({ level, apiKey, onBack, onSessionEnd }) {
   const [error, setError] = useState(null);
   const [showHint, setShowHint] = useState(false);
   const speechSupported = !!getSpeechRecognition();
+  const recRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      try { recRef.current && recRef.current.abort(); } catch (e) { /* noop */ }
+    };
+  }, []);
 
   const effectiveLevel = level === "all" ? "intermediate" : level;
 
@@ -1045,32 +1052,46 @@ function SpeakingPractice({ level, apiKey, onBack, onSessionEnd }) {
   }
 
   function startListening() {
+    try { recRef.current && recRef.current.abort(); } catch (e) { /* noop */ }
     const rec = getSpeechRecognition();
     if (!rec) return;
+    recRef.current = rec;
     setError(null);
     setTranscript("");
     rec.lang = "en-US";
+    rec.continuous = true;
     rec.interimResults = true;
     rec.maxAlternatives = 1;
     let finalText = "";
+    setPhase("starting");
+    rec.onaudiostart = () => setPhase((p) => (p === "starting" ? "listening" : p));
     rec.onresult = (event) => {
       let interim = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const t = event.results[i][0].transcript;
-        if (event.results[i].isFinal) finalText += t;
+        if (event.results[i].isFinal) finalText += t + " ";
         else interim += t;
       }
       setTranscript((finalText + " " + interim).trim());
     };
     rec.onerror = (event) => {
-      setError(event.error === "not-allowed" ? "הגישה למיקרופון נחסמה. אשרו הרשאת מיקרופון בדפדפן ונסו שוב." : "לא הצלחנו לזהות דיבור. נסו שוב.");
+      if (event.error === "no-speech") {
+        setError("לא זוהה דיבור. נסו שוב, וחכו לכיתוב \"דברו עכשיו\" לפני שמתחילים.");
+      } else if (event.error === "not-allowed") {
+        setError("הגישה למיקרופון נחסמה. אשרו הרשאת מיקרופון בדפדפן ונסו שוב.");
+      } else {
+        setError("לא הצלחנו לזהות דיבור. נסו שוב.");
+      }
       setPhase("ready");
     };
     rec.onend = () => {
-      setPhase((p) => (p === "listening" ? "reviewing" : p));
+      setPhase((p) => (p === "listening" || p === "starting" ? "reviewing" : p));
     };
     rec.start();
-    setPhase("listening");
+  }
+
+  function stopListening() {
+    try { recRef.current && recRef.current.stop(); } catch (e) { /* noop */ }
   }
 
   async function sendAnswer(text) {
@@ -1162,7 +1183,7 @@ function SpeakingPractice({ level, apiKey, onBack, onSessionEnd }) {
         )}
       </div>
 
-      {lastAI && lastAI.hint && lastAI.hint.length > 0 && (phase === "ready" || phase === "listening" || phase === "reviewing") && (
+      {lastAI && lastAI.hint && lastAI.hint.length > 0 && (phase === "ready" || phase === "listening" || phase === "starting" || phase === "reviewing") && (
         <div style={{ marginBottom: 8 }}>
           {!showHint ? (
             <button className="ela-chip" onClick={() => setShowHint(true)}><Lightbulb size={13} style={{ marginLeft: 4 }} />הצג רמז</button>
@@ -1190,13 +1211,15 @@ function SpeakingPractice({ level, apiKey, onBack, onSessionEnd }) {
         ) : speechSupported ? (
           <>
             <button
-              className={"ela-micbtn" + (phase === "listening" ? " listening" : "")}
+              className={"ela-micbtn" + (phase === "listening" || phase === "starting" ? " listening" : "")}
               disabled={phase === "sending" || phase === "loading"}
-              onClick={phase === "listening" ? () => {} : startListening}
+              onClick={phase === "listening" || phase === "starting" ? stopListening : startListening}
             >
-              {phase === "listening" ? <Square size={24} /> : <Mic size={26} />}
+              {phase === "listening" || phase === "starting" ? <Square size={24} /> : <Mic size={26} />}
             </button>
-            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>{phase === "listening" ? "מקשיב... דברו עכשיו" : "הקישו כדי לדבר"}</span>
+            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
+              {phase === "starting" ? "מתחברים למיקרופון..." : phase === "listening" ? "מקשיב... דברו עכשיו, לחצו כדי לסיים" : "הקישו כדי לדבר"}
+            </span>
           </>
         ) : (
           <div style={{ display: "flex", gap: 8, width: "100%" }}>
