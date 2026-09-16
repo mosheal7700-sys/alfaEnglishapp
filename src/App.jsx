@@ -1062,17 +1062,14 @@ function SpeakingPractice({ level, apiKey, onBack, onSessionEnd }) {
     rec.continuous = true;
     rec.interimResults = true;
     rec.maxAlternatives = 1;
-    let finalText = "";
     setPhase("starting");
     rec.onaudiostart = () => setPhase((p) => (p === "starting" ? "listening" : p));
     rec.onresult = (event) => {
-      let interim = "";
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const t = event.results[i][0].transcript;
-        if (event.results[i].isFinal) finalText += t + " ";
-        else interim += t;
+      let text = "";
+      for (let i = 0; i < event.results.length; i++) {
+        text += event.results[i][0].transcript;
       }
-      setTranscript((finalText + " " + interim).trim());
+      setTranscript(text.trim());
     };
     rec.onerror = (event) => {
       if (event.error === "no-speech") {
