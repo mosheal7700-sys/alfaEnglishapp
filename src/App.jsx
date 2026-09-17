@@ -1055,6 +1055,7 @@ function SpeakingPractice({ level, apiKey, recentFocus, onMistakeTag, onBack, on
   const recRef = useRef(null);
   const isHeldRef = useRef(false);
   const committedTextRef = useRef("");
+  const stopScheduledRef = useRef(false);
   const speechSupported = !!getSpeechRecognition();
 
   useEffect(() => {
@@ -1138,6 +1139,7 @@ function SpeakingPractice({ level, apiKey, recentFocus, onMistakeTag, onBack, on
 
   function startHold() {
     if (isHeldRef.current) return;
+    stopScheduledRef.current = false;
     isHeldRef.current = true;
     committedTextRef.current = "";
     setError(null);
@@ -1146,14 +1148,20 @@ function SpeakingPractice({ level, apiKey, recentFocus, onMistakeTag, onBack, on
   }
 
   function stopHold() {
-    if (!isHeldRef.current) return;
-    isHeldRef.current = false;
-    try {
-      recRef.current && recRef.current.stop();
-    } catch (e) {
-      setTranscript(committedTextRef.current);
-      setPhase(committedTextRef.current ? "reviewing" : "ready");
-    }
+    if (!isHeldRef.current || stopScheduledRef.current) return;
+    stopScheduledRef.current = true;
+    // small grace period so the last word isn't clipped right as the button is released -
+    // the recognizer needs a beat to finish processing audio it already captured
+    setTimeout(() => {
+      stopScheduledRef.current = false;
+      isHeldRef.current = false;
+      try {
+        recRef.current && recRef.current.stop();
+      } catch (e) {
+        setTranscript(committedTextRef.current);
+        setPhase(committedTextRef.current ? "reviewing" : "ready");
+      }
+    }, 400);
   }
 
   function recordAgain() {
