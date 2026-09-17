@@ -19,7 +19,6 @@ import {
   Loader2,
   Home as HomeIcon,
   Mic,
-  Square,
   RotateCcw,
   Lightbulb,
 } from "lucide-react";
@@ -620,6 +619,7 @@ function GlobalStyle() {
         width: 68px; height: 68px; border-radius: 50%; border: none; cursor: pointer;
         background: var(--sage); color: white; display: flex; align-items: center; justify-content: center;
         box-shadow: 0 6px 18px rgba(79,121,101,0.35); transition: transform 0.15s ease;
+        touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
       }
       .ela-micbtn.listening { background: var(--rose); animation: ela-pulse 1.4s ease-in-out infinite; }
       .ela-micbtn:disabled { opacity: 0.5; cursor: default; }
@@ -1052,11 +1052,14 @@ function SpeakingPractice({ level, apiKey, recentFocus, onMistakeTag, onBack, on
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState(null);
   const [showHint, setShowHint] = useState(false);
-  const speechSupported = !!getSpeechRecognition();
   const recRef = useRef(null);
+  const isHeldRef = useRef(false);
+  const committedTextRef = useRef("");
+  const speechSupported = !!getSpeechRecognition();
 
   useEffect(() => {
     return () => {
+      isHeldRef.current = false;
       try { recRef.current && recRef.current.abort(); } catch (e) { /* noop */ }
     };
   }, []);
@@ -1077,57 +1080,86 @@ function SpeakingPractice({ level, apiKey, recentFocus, onMistakeTag, onBack, on
     }
   }
 
-  function startListening() {
+  function launchRecognitionSession() {
     try { recRef.current && recRef.current.abort(); } catch (e) { /* noop */ }
     const rec = getSpeechRecognition();
     if (!rec) return;
     recRef.current = rec;
-    setError(null);
-    setTranscript("");
     rec.lang = "en-US";
     rec.continuous = true;
-    rec.interimResults = true;
+    rec.interimResults = false; // only care about the finalized result, shown once the button is released
     rec.maxAlternatives = 1;
-    setPhase("starting");
+    let sessionFinal = "";
     rec.onaudiostart = () => setPhase((p) => (p === "starting" ? "listening" : p));
     rec.onresult = (event) => {
-      let finalParts = [];
-      let interimText = "";
+      // Some platforms (e.g. Android Chrome) resend a cumulative transcript instead of just the
+      // new delta - detect that and replace rather than append, to avoid duplicated words.
+      let parts = [];
       for (let i = 0; i < event.results.length; i++) {
         const t = (event.results[i][0].transcript || "").trim();
         if (!t) continue;
-        if (event.results[i].isFinal) {
-          const joinedSoFar = finalParts.join(" ");
-          if (joinedSoFar && t.toLowerCase().startsWith(joinedSoFar.toLowerCase())) {
-            // this platform (e.g. Android Chrome) resends a cumulative transcript - replace, don't append
-            finalParts = [t];
-          } else if (!joinedSoFar.toLowerCase().includes(t.toLowerCase())) {
-            finalParts.push(t);
-          }
-        } else {
-          interimText = t;
+        const joined = parts.join(" ");
+        if (joined && t.toLowerCase().startsWith(joined.toLowerCase())) {
+          parts = [t];
+        } else if (!joined.toLowerCase().includes(t.toLowerCase())) {
+          parts.push(t);
         }
       }
-      setTranscript((finalParts.join(" ") + " " + interimText).trim());
+      sessionFinal = parts.join(" ");
     };
     rec.onerror = (event) => {
-      if (event.error === "no-speech") {
-        setError("לא זוהה דיבור. נסו שוב, וחכו לכיתוב \"דברו עכשיו\" לפני שמתחילים.");
-      } else if (event.error === "not-allowed") {
+      if (event.error === "not-allowed") {
+        isHeldRef.current = false;
         setError("הגישה למיקרופון נחסמה. אשרו הרשאת מיקרופון בדפדפן ונסו שוב.");
-      } else {
-        setError("לא הצלחנו לזהות דיבור. נסו שוב.");
+        setPhase("ready");
       }
-      setPhase("ready");
+      // other errors (like 'no-speech' during a natural pause) are handled by onend below
     };
     rec.onend = () => {
-      setPhase((p) => (p === "listening" || p === "starting" ? "reviewing" : p));
+      if (sessionFinal) {
+        committedTextRef.current = (committedTextRef.current + " " + sessionFinal).trim();
+      }
+      if (isHeldRef.current) {
+        // the engine ended on its own (e.g. it heard a pause) but the button is still held down -
+        // this is exactly the case that used to cause early cutoffs/duplication, so just resume
+        // seamlessly without the user noticing.
+        launchRecognitionSession();
+      } else {
+        setTranscript(committedTextRef.current);
+        setPhase(committedTextRef.current ? "reviewing" : "ready");
+      }
     };
-    rec.start();
+    try {
+      rec.start();
+    } catch (e) {
+      /* start() can throw if called too quickly in succession; safe to ignore */
+    }
   }
 
-  function stopListening() {
-    try { recRef.current && recRef.current.stop(); } catch (e) { /* noop */ }
+  function startHold() {
+    if (isHeldRef.current) return;
+    isHeldRef.current = true;
+    committedTextRef.current = "";
+    setError(null);
+    setPhase("starting");
+    launchRecognitionSession();
+  }
+
+  function stopHold() {
+    if (!isHeldRef.current) return;
+    isHeldRef.current = false;
+    try {
+      recRef.current && recRef.current.stop();
+    } catch (e) {
+      setTranscript(committedTextRef.current);
+      setPhase(committedTextRef.current ? "reviewing" : "ready");
+    }
+  }
+
+  function recordAgain() {
+    committedTextRef.current = "";
+    setTranscript("");
+    setPhase("ready");
   }
 
   function typeInstead() {
@@ -1271,7 +1303,7 @@ function SpeakingPractice({ level, apiKey, recentFocus, onMistakeTag, onBack, on
             />
             <div style={{ display: "flex", gap: 10 }}>
               {speechSupported && (
-                <button className="ela-btn secondary" onClick={startListening}><RotateCcw size={15} />הקלטה מחדש</button>
+                <button className="ela-btn secondary" onClick={recordAgain}><RotateCcw size={15} />הקלטה מחדש</button>
               )}
               <button className="ela-btn" disabled={!transcript.trim()} onClick={() => sendAnswer(transcript)}>שליחה</button>
             </div>
@@ -1281,12 +1313,16 @@ function SpeakingPractice({ level, apiKey, recentFocus, onMistakeTag, onBack, on
             <button
               className={"ela-micbtn" + (phase === "listening" || phase === "starting" ? " listening" : "")}
               disabled={phase === "sending" || phase === "loading"}
-              onClick={phase === "listening" || phase === "starting" ? stopListening : startListening}
+              onPointerDown={(e) => { e.preventDefault(); startHold(); }}
+              onPointerUp={stopHold}
+              onPointerLeave={stopHold}
+              onPointerCancel={stopHold}
+              onContextMenu={(e) => e.preventDefault()}
             >
-              {phase === "listening" || phase === "starting" ? <Square size={24} /> : <Mic size={26} />}
+              <Mic size={26} />
             </button>
             <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
-              {phase === "starting" ? "מתחברים למיקרופון..." : phase === "listening" ? "מקשיב... דברו עכשיו, לחצו כדי לסיים" : "הקישו כדי לדבר"}
+              {phase === "starting" ? "מתחברים למיקרופון..." : phase === "listening" ? "מקליט... דברו, שחררו כשסיימתם" : "לחצו והחזיקו כדי לדבר"}
             </span>
             {phase === "ready" && (
               <button
@@ -1565,5 +1601,4 @@ export default function App() {
     </div>
   );
 }
-
 
