@@ -818,21 +818,27 @@ function VocabSession({ state, apiKey, onFinish, onBack }) {
     setPhase("quiz");
   }
 
+  function advanceQuiz(nextResults) {
+    if (idx + 1 < words.length) {
+      setIdx(idx + 1);
+      setFlipped(false);
+      setPhase("flip");
+    } else {
+      onFinish(nextResults, useAI);
+    }
+  }
+
   function choose(opt) {
     if (selected) return;
     setSelected(opt.id);
     const correct = opt.id === word.id;
     const nextResults = [...results, { id: word.id, en: word.en, correct }];
     setResults(nextResults);
-    setTimeout(() => {
-      if (idx + 1 < words.length) {
-        setIdx(idx + 1);
-        setFlipped(false);
-        setPhase("flip");
-      } else {
-        onFinish(nextResults, useAI);
-      }
-    }, 850);
+    if (correct) {
+      // already knew it - move on quickly
+      setTimeout(() => advanceQuiz(nextResults), 900);
+    }
+    // when wrong, wait for the person to tap "המשך" below, so there's no rush to read the correct answer
   }
 
   return (
@@ -879,6 +885,9 @@ function VocabSession({ state, apiKey, onFinish, onBack }) {
               <button key={opt.id} className={cls} disabled={!!selected} onClick={() => choose(opt)}>{opt.he}</button>
             );
           })}
+          {selected && selected !== word.id && (
+            <button className="ela-btn" style={{ marginTop: 8 }} onClick={() => advanceQuiz(results)}>המשך</button>
+          )}
         </div>
       )}
     </div>
@@ -1609,4 +1618,5 @@ export default function App() {
     </div>
   );
 }
+
 
